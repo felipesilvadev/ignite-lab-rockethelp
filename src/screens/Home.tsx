@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Alert } from 'react-native';
 import {
   useTheme,
   HStack,
@@ -10,11 +11,16 @@ import {
 } from 'native-base';
 import { SignOut } from 'phosphor-react-native';
 import { useNavigation } from '@react-navigation/native';
+import auth from '@react-native-firebase/auth';
+import firestore from '@react-native-firebase/firestore';
 
+import { Loading } from '../components/Loading';
 import { Filter } from '../components/Filter';
 import { Order, OrderProps } from '../components/Order';
 import { Button } from '../components/Button';
 import { EmptyList } from '../components/EmptyList';
+
+import { firestoreDateFormat } from '../utils/firestoreDateFormat';
 
 import Logo from '../assets/logo_secondary.svg';
 
@@ -22,21 +28,18 @@ const Home = () => {
   const { colors } = useTheme();
   const { navigate } = useNavigation();
 
+  const [isLoading, setIsLoading] = useState(true);
   const [statusSelected, setStatusSelected] = useState<'open' | 'closed'>('open');
-  const [orders, setOrders] = useState<OrderProps[]>([
-    {
-      id: '123',
-      patrimony: '90908080',
-      when: '18/07/2022 às 10:00',
-      status: 'open',
-    },
-    {
-      id: '321',
-      patrimony: '80809090',
-      when: '21/07/2022 às 17:00',
-      status: 'closed',
-    },
-  ]);
+  const [orders, setOrders] = useState<OrderProps[]>([]);
+
+  const handleLogout = () => {
+    auth()
+    .signOut()
+    .catch(error => {
+      console.log(error);
+      return Alert.alert("Sair", "Não foi possível sair");
+    });
+  };
 
   const handleNewOrder = () => {
     navigate('new');
@@ -45,6 +48,31 @@ const Home = () => {
   const handleOpenDetails = (orderId: string) => {
     navigate('details', { orderId });
   };
+
+  useEffect(() => {
+    setIsLoading(true);
+    
+    const subscriber = firestore()
+    .collection('orders')
+    .where('status', '==', statusSelected)
+    .onSnapshot(snapshot => {
+      const data = snapshot.docs.map(doc => {
+        const { patrimony, status, created_at } = doc.data();
+        
+        return {
+          id: doc.id,
+          patrimony,
+          status,
+          when: firestoreDateFormat(created_at),
+        };
+      });
+
+      setOrders(data);
+      setIsLoading(false);
+    });
+
+    return subscriber;
+  }, [statusSelected]);
 
   return (
     <VStack flex={1} pb={6} bg="gray.700">
@@ -61,6 +89,7 @@ const Home = () => {
 
         <IconButton 
           icon={<SignOut size={26} color={colors.gray[300]} />}
+          onPress={handleLogout}
         />
       </HStack>
 
@@ -90,20 +119,22 @@ const Home = () => {
           />
         </HStack>
 
-        <FlatList
-          data={orders}
-          keyExtractor={item => item.id}
-          renderItem={({ item }) => (
-            <Order data={item} onPress={() => handleOpenDetails(item.id)} />
-          )}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{
-            paddingBottom: 100,
-          }}
-          ListEmptyComponent={
-            <EmptyList description={statusSelected === 'open' ? 'em andamento' : 'finalizadas'} />
-          }
-        />
+        {isLoading ? <Loading /> : (
+          <FlatList
+            data={orders}
+            keyExtractor={item => item.id}
+            renderItem={({ item }) => (
+              <Order data={item} onPress={() => handleOpenDetails(item.id)} />
+            )}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{
+              paddingBottom: 100,
+            }}
+            ListEmptyComponent={
+              <EmptyList description={statusSelected === 'open' ? 'em andamento' : 'finalizadas'} />
+            }
+          />
+        )}
 
         <Button title="Nova solicitação" onPress={handleNewOrder} />
       </VStack>
